@@ -1,0 +1,132 @@
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define mod 10
+
+int main() {
+    int my_Rank, comm_Sz;
+    int n = 0;
+    int *arr = NULL;
+    int *local_arr;
+    int local_n;
+    struct timespec start, end;
+    double exe_time;
+
+    MPI_Init(NULL, NULL);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_Rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_Sz);
+
+    if (my_Rank == 0) {
+        while (1) {
+            printf("Enter number of elements (n): ");
+            fflush(stdout);
+            if (scanf("%d", &n) != 1) break;
+
+            if (n % comm_Sz == 0)
+                break;
+
+            printf("n must be divisible by number of processes (%d). Try again.\n", comm_Sz);
+            fflush(stdout);
+        }
+
+        arr = (int *)malloc(n * sizeof(int));
+        srand(time(NULL));
+        printf("\nGenerated Array:\n");
+        for (int i = 0; i < n; i++) {
+            arr[i] = rand() % mod;
+            printf("%d ", arr[i]);
+        }
+        printf("\n\n");
+        fflush(stdout);
+        local_n = n / comm_Sz;
+    }
+
+
+    MPI_Bcast(&local_n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    local_arr = (int *)malloc(local_n * sizeof(int));
+    MPI_Scatter(arr, local_n, MPI_INT, local_arr, local_n, MPI_INT, 0, MPI_COMM_WORLD);
+
+    int *local_freq = (int *)calloc(mod, sizeof(int));
+
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (int i = 0; i < local_n; i++)
+        local_freq[local_arr[i]]++;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    exe_time = ((end.tv_sec - start.tv_sec) * 1000.0) + (end.tv_nsec - start.tv_nsec) / 1000000.0;
+
+
+    for (int p = 0; p < comm_Sz; p++) {
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (my_Rank == p) {
+            printf("--- Process %d Report ---\n", my_Rank);
+            for (int i = 0; i < local_n; i++) {
+                printf("Value %d (Local Freq: %d)\n", local_arr[i], local_freq[local_arr[i]]);
+            }
+            printf("Execution time: %.6f ms\n\n", exe_time);
+            fflush(stdout);
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    int *global_freq = NULL;
+    if (my_Rank == 0) global_freq = (int *)calloc(mod, sizeof(int));
+
+    MPI_Reduce(local_freq, global_freq, mod, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (my_Rank == 0) {
+        printf("Final Global Frequency Count:\n");
+        for (int i = 0; i < mod; i++) {
+            if (global_freq[i] > 0)
+                printf("Element %d -> %d times\n", i, global_freq[i]);
+        }
+        free(arr);
+        free(global_freq);
+        fflush(stdout);
+    }
+
+    free(local_arr);
+    free(local_freq);
+
+    MPI_Finalize();
+    return 0;
+}
+
+ada@ada:~$ mpiexec -n 3 ./a.out
+Enter number of elements (n): 12
+
+Generated Array:
+5 2 6 8 1 5 3 3 1 2 3 6
+
+--- Process 0 Report ---
+Value 5 (Local Freq: 1)
+Value 2 (Local Freq: 1)
+Value 6 (Local Freq: 1)
+Value 8 (Local Freq: 1)
+Execution time: 0.002165 ms
+
+--- Process 1 Report ---
+Value 1 (Local Freq: 1)
+Value 5 (Local Freq: 1)
+Value 3 (Local Freq: 2)
+Value 3 (Local Freq: 2)
+Execution time: 0.001816 ms
+
+--- Process 2 Report ---
+Value 1 (Local Freq: 1)
+Value 2 (Local Freq: 1)
+Value 3 (Local Freq: 1)
+Value 6 (Local Freq: 1)
+Execution time: 0.002584 ms
+
+Final Global Frequency Count:
+Element 1 -> 2 times
+Element 2 -> 2 times
+Element 3 -> 3 times
+Element 5 -> 2 times
+Element 6 -> 2 times
+Element 8 -> 1 times

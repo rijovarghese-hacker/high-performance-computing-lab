@@ -1,0 +1,110 @@
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <mpi.h>
+#include <stdlib.h>
+
+#define Max 100
+
+
+void toUpperCase(char str[]) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        str[i] = toupper(str[i]);
+    }
+}
+
+
+int isPalindrome(char str[]) {
+    int len = strlen(str);
+    if (len == 0) return 1;
+    int i = 0, j = len - 1;
+    while (i < j) {
+        if (str[i] != str[j]) return 0;
+        i++;
+        j--;
+    }
+    return 1;
+}
+
+int main(int argc, char** argv) {
+    char string[Max];
+    int comm_sz;
+    int my_rank;
+    MPI_Status status;
+    double start_time, end_time;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+    if (my_rank != 0) {
+
+
+        if (my_rank % 2 == 0) {
+
+            if (my_rank == 2) strcpy(string, "racecar");
+            else strcpy(string, "mpi");
+        } else {
+
+            if (my_rank == 1) strcpy(string, "hello");
+            else strcpy(string, "world");
+        }
+
+
+        printf("\n[Process %d] Sending string: %s\n", my_rank, string);
+        fflush(stdout);
+
+        start_time = MPI_Wtime();
+
+
+        if (my_rank % 2 == 0)
+            MPI_Send(string, strlen(string) + 1, MPI_CHAR, 0, 2, MPI_COMM_WORLD);
+        else
+            MPI_Send(string, strlen(string) + 1, MPI_CHAR, 0, 1, MPI_COMM_WORLD);
+
+        end_time = MPI_Wtime();
+        printf("[Process %d] Time taken: %f ms\n", my_rank, (end_time - start_time) * 1000);
+    }
+
+    if (my_rank == 0) {
+        printf("--- Root Process Receiving Results ---\n");
+        for (int i = 1; i < comm_sz; i++) {
+
+            MPI_Recv(string, Max, MPI_CHAR, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            int sender = status.MPI_SOURCE;
+            int tag = status.MPI_TAG;
+
+            if (tag == 1) {
+                toUpperCase(string);
+                printf("Result from Proc %d (Tag 1 - UpperCase): %s\n", sender, string);
+            } else if (tag == 2) {
+                if (isPalindrome(string))
+                    printf("Result from Proc %d (Tag 2 - Palindrome): %s is a palindrome\n", sender, string);
+                else
+                    printf("Result from Proc %d (Tag 2 - Palindrome): %s is not a palindrome\n", sender, string);
+            }
+        }
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+I-A2@gbl:~/Documents/23BCS055/ex2$ mpicc ex2v3.c
+III-A2@gbl:~/Documents/23BCS055/ex2$ mpiexec -n 5 ./a.out
+--- Root Process Receiving Results ---
+
+[Process 2] Sending string: malayalam
+[Process 2] Time taken: 0.005563 ms
+
+[Process 4] Sending string: mpi
+[Process 4] Time taken: 0.006091 ms
+
+[Process 1] Sending string: truth
+
+[Process 3] Sending string: world
+Result from Proc 1 (Tag 1 - UpperCase): TRUTH
+Result from Proc 2 (Tag 2 - Palindrome): malayalam is a palindrome
+Result from Proc 3 (Tag 1 - UpperCase): WORLD
+[Process 1] Time taken: 0.005461 ms
+[Process 3] Time taken: 0.005468 ms
+Result from Proc 4 (Tag 2 - Palindrome): mpi is not a palindrome

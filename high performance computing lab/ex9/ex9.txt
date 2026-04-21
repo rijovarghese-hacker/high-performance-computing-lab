@@ -1,0 +1,63 @@
+#include <stdio.h>
+#include <omp.h>
+
+double f(double x)
+{
+    return x * x;
+}
+
+int main() {
+    int n, n_threads;
+    printf("Enter no of trapezoids: ");
+    scanf("%d", &n);
+
+    double a, b;
+    printf("Enter a and b: ");
+    scanf("%lf %lf", &a, &b);
+
+    printf("Enter no of threads: ");
+    scanf("%d", &n_threads);
+
+    double h, global_sum = 0.0, integral;
+    h = (b - a) / n;
+
+
+    #pragma omp parallel num_threads(n_threads)
+    {
+        int thread_id = omp_get_thread_num();
+        int total_threads = omp_get_num_threads();
+
+        double local_sum = 0.0;
+
+
+        for (int i = 1 + thread_id; i < n; i += total_threads)
+        {
+            local_sum += f(a + i * h);
+        }
+
+
+        printf("Thread %d: Local sum = %f\n", thread_id, local_sum);
+
+
+        #pragma omp atomic
+        global_sum += local_sum;
+    }
+
+
+    printf("\nGlobal sum of interior points = %f\n", global_sum);
+
+
+    integral = h * ((f(a) + f(b)) / 2.0 + global_sum);
+    printf("Final Integral = %f\n", integral);
+
+    return 0;
+}
+Enter no of trapezoids: 3
+Enter a and b: 1 15
+Enter no of threads: 3
+Thread 1: Local sum = 106.777778
+Thread 2: Local sum = 0.000000
+Thread 0: Local sum = 32.111111
+
+Global sum of interior points = 138.888889
+Final Integral = 1175.481481
