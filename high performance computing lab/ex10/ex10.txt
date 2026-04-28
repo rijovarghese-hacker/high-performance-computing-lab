@@ -1,0 +1,173 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <omp.h>
+
+#define MAX_QUEUE 100
+#define MAX_LINE 256
+
+char queue[MAX_QUEUE][MAX_LINE];
+int front = 0, rear = 0, count = 0;
+
+int done_producers = 0;
+int NUM_PRODUCERS, NUM_CONSUMERS;
+
+omp_lock_t lock;
+
+void enqueue(char *line, int producer_id) {
+    while (1) {
+        omp_set_lock(&lock);
+
+        if (count < MAX_QUEUE) {
+            // Copy line to queue
+            strcpy(queue[rear], line);
+
+            // Clean up newline character for cleaner printing
+            queue[rear][strcspn(queue[rear], "\r\n")] = 0;
+
+            #pragma omp critical
+            {
+                printf("[ENQUEUE START] Producer %d\n", producer_id);
+                printf("Inserted at position %d: %s\n", rear, queue[rear]);
+                printf("[ENQUEUE END]\n");
+            }
+
+            rear = (rear + 1) % MAX_QUEUE;
+            count++;
+            omp_unset_lock(&lock);
+            break;
+        }
+
+        omp_unset_lock(&lock);
+    }
+}
+
+int dequeue(char *line, int consumer_id) {
+    int flag = 0;
+
+    omp_set_lock(&lock);
+
+    if (count > 0) {
+        strcpy(line, queue[front]);
+
+        #pragma omp critical
+        {
+            printf("[DEQUEUE START] Consumer %d\n", consumer_id);
+            char *saveptr;
+            char *token = strtok_r(line, " \t\n", &saveptr);
+            while (token != NULL) {
+                printf("Consumer %d TOKEN: %s\n", consumer_id, token);
+                token = strtok_r(NULL, " \t\n", &saveptr);
+            }
+            printf("[DEQUEUE END]\n");
+        }
+
+        front = (front + 1) % MAX_QUEUE;
+        count--;
+        flag = 1;
+    }
+
+    omp_unset_lock(&lock);
+    return flag;
+}
+
+void producer(int id, char *filename) {
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        #pragma omp critical
+        printf("Producer %d: Cannot open %s\n", id, filename);
+        #pragma omp atomic
+        done_producers++;
+        return;
+    }
+
+    char line[MAX_LINE];
+    while (fgets(line, MAX_LINE, f)) {
+        enqueue(line, id);
+    }
+
+    fclose(f);
+    #pragma omp atomic
+    done_producers++;
+}
+
+void consumer(int id) {
+    char line[MAX_LINE];
+
+    while (1) {
+        if (!dequeue(line, id)) {
+            #pragma omp flush(done_producers)
+            if (done_producers == NUM_PRODUCERS) {
+                // Final check to ensure queue is empty
+                omp_set_lock(&lock);
+                if (count == 0) {
+                    omp_unset_lock(&lock);
+                    break;
+                }
+                omp_unset_lock(&lock);
+            }
+        }
+    }
+}
+
+int main() {
+    printf("Enter number of producers (1-3): ");
+    scanf("%d", &NUM_PRODUCERS);
+
+    printf("Enter number of consumers: ");
+    scanf("%d", &NUM_CONSUMERS);
+
+    // Ensure these files exist in your folder
+    char *files[] = {"file1.txt", "file2.txt", "file3.txt"};
+
+    omp_init_lock(&lock);
+
+    #pragma omp parallel num_threads(NUM_PRODUCERS + NUM_CONSUMERS)
+    {
+        int tid = omp_get_thread_num();
+
+        if (tid < NUM_PRODUCERS) {
+            producer(tid, files[tid % 3]);
+        } else {
+            consumer(tid - NUM_PRODUCERS);
+        }
+    }
+
+    omp_destroy_lock(&lock);
+    printf("\nProcess Complete.\n");
+
+    return 0;
+}
+[23bcs055@mepcolinux ex10]$./a.out
+Enter number of producers (1-3): 3
+Enter number of consumers: 3
+[ENQUEUE START] Producer 1
+Inserted at position 0: iam rijo iam fine
+[ENQUEUE END]
+[DEQUEUE START] Consumer 0
+Consumer 0 TOKEN: iam
+Consumer 0 TOKEN: rijo
+Consumer 0 TOKEN: iam
+Consumer 0 TOKEN: fine
+[DEQUEUE END]
+[ENQUEUE START] Producer 0
+Inserted at position 1: hi how are you?
+[ENQUEUE END]
+[DEQUEUE START] Consumer 2
+Consumer 2 TOKEN: hi
+Consumer 2 TOKEN: how
+Consumer 2 TOKEN: are
+Consumer 2 TOKEN: you?
+[DEQUEUE END]
+[ENQUEUE START] Producer 2
+Inserted at position 2: iam studying in mepco college
+[ENQUEUE END]
+[DEQUEUE START] Consumer 1
+Consumer 1 TOKEN: iam
+Consumer 1 TOKEN: studying
+Consumer 1 TOKEN: in
+Consumer 1 TOKEN: mepco
+Consumer 1 TOKEN: college
+[DEQUEUE END]
+
+Process Complete.
